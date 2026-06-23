@@ -704,6 +704,30 @@ host=127.0.0.1
 port=5060
 ```
 
+##### Asterisk Core Dialplan Interconnect Configuration (`/etc/asterisk/extensions.conf`)
+```ini
+[general]
+static=yes
+writeprotect=no
+clearglobalvars=no
+
+[incoming-calls]
+; Accept incoming traffic routed by Kamailio and bridge call payloads natively
+exten => _X.,1,NoOp(Incoming high-availability call stream processed via Kamailio)
+same => n,Log(NOTICE, Routing trunk payload destination: \${EXTEN})
+same => n,Ringing()
+same => n,Dial(PJSIP/\${EXTEN}@cluster-peer,30)
+same => n,Hangup()
+
+[internal-extensions]
+; Allow local DMZ phone assets to map and handshake out-of-band
+exten => _1XX,1,NoOp(Internal cluster line execution)
+same => n,Dial(PJSIP/\${EXTEN},20)
+same => n,VoiceMail(\${EXTEN}@default)
+same => n,Hangup()
+```
+
+
 ### 4. Shared Core Network Services (Executed Natively on Hypervisor Hosts)
 DHCP and Network File System parameters handle infrastructure data sharing natively across the nodes.
 
