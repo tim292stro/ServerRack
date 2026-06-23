@@ -969,11 +969,11 @@ while read -r line; do
     if [[ "\$line" =~ ^\$G.GGA ]]; then
         IFS=',' read -r -a p <<< "\$line"
         if [ "\${p[6]}" != "0" ]; then
-            raw_lat=\${p[2]}
-            lat=\$(echo "scale=6; (\({raw_lat:0:2}) + (\){raw_lat:2}/60)" | bc)
+            raw_lat=${p[2]}
+            lat=$(echo "scale=6; (${raw_lat:0:2}) + (${raw_lat:2}/60)" | bc)
             if [ "\({p[3]}" == "S" ]; then lat="-\)lat"; fi
 
-            raw_lon=\${p[4]}
+            raw_lon=${p[4]}
             lon=\$(echo "scale=6; (\({raw_lon:0:3}) + (\){p[4]:3}/60)" | bc)
             if [ "\({p[5]}" == "W" ]; then lon="-\)lon"; fi
 
