@@ -1,9 +1,16 @@
-Clean Master Deployment Manual: FOSS High-Availability Cluster
-This master deployment manual details the end-to-end setup of a 100% Free and Open-Source Software (FOSS), subscription-free High-Availability network front-end and hosting environment.
-This architecture leverages a Linux Mint management desktop orchestrating two headless, diskless Debian 12 servers. The headless nodes boot their core operating systems over isolated, point-to-point Class C /30 subnets via the Supermicro IP-KVM Virtual Media interface.
-A dedicated, hardware-disciplined Stratum 1 timing stack runs on the Linux Mint PC using a u-blox ZED-X20P multi-band GNSS receiver paired with a Stanford Research Systems (SRS) PRS10 Rubidium Frequency Standard. SatPulse acts as the high-precision driver frontend while Chrony serves time across the isolated networks.
-1. Master Architecture Topology
+# Clean Master Deployment Manual: FOSS High-Availability Cluster
 
+This master deployment manual details the end-to-end setup of a 100% Free and Open-Source Software (**FOSS**), subscription-free High-Availability network front-end and hosting environment. 
+
+This architecture leverages a **Linux Mint** management desktop orchestrating two headless, diskless **Debian 12** servers. The headless nodes boot their core operating systems over isolated, point-to-point **Class C /30 subnets** via the Supermicro IP-KVM Virtual Media interface. 
+
+A dedicated, hardware-disciplined Stratum 1 timing stack runs on the Linux Mint PC using a **u-blox ZED-X20P multi-band GNSS receiver** paired with a **Stanford Research Systems (SRS) PRS10 Rubidium Frequency Standard**. **SatPulse** acts as the high-precision driver frontend while **Chrony** serves time across the isolated networks.
+
+---
+
+## 1. Master Architecture Topology
+
+```mermaid
 graph TD
     subgraph Public WAN Layer [Public Internet Edge]
         VIP[Floating Public WAN VIP: 203.0.113.10]
@@ -45,50 +52,26 @@ graph TD
         MINT_BOX <--> MINT_2
         MINT_BOX <--> MINT_3
     end
+```
 
+### Infrastructure Network Matrix
 
-Infrastructure Network Matrix
-Network Path
-Interface Role
-Subnet / Mask
-Mint Side Host IP
-Server Target IP
-KVM Link 1
-Server 1 Boot / Time / QDevice
-192.168.99.0/30
-192.168.99.1
-192.168.99.2
-KVM Link 2
-Server 2 Boot / Time / QDevice
-192.168.99.4/30
-192.168.99.5
-192.168.99.6
-Interconnect
-Distributed Storage Sync Loop
-10.200.0.0/24
-—
-.1 (S1) / .2 (S2)
-Internal LAN
-VM Bridging & Host Routing
-10.0.0.0/8
-—
-.11 (S1) / .12 (S2)
-DMZ Network
-Isolated Guest Allocations
-172.16.0.0/16
-—
-Dynamic VM Routing
-Public WAN
-Redundant External Uplinks
-ISP Assigned
-—
-Assigned IPs / Floating VIP
+| Network Path | Interface Role | Subnet / Mask | Mint Side Host IP | Server Target IP |
+| :--- | :--- | :--- | :--- | :--- |
+| **KVM Link 1** | Server 1 Boot / Time / QDevice | `192.168.99.0/30` | `192.168.99.1` | `192.168.99.2` |
+| **KVM Link 2** | Server 2 Boot / Time / QDevice | `192.168.99.4/30` | `192.168.99.5` | `192.168.99.6` |
+| **Interconnect** | Distributed Storage Sync Loop | `10.200.0.0/24` | — | `.1` (S1) / `.2` (S2) |
+| **Internal LAN** | VM Bridging & Host Routing | `10.0.0.0/8` | — | `.11` (S1) / `.12` (S2) |
+| **DMZ Network** | Isolated Guest Allocations | `172.16.0.0/16` | — | Dynamic VM Routing |
+| **Public WAN** | Redundant External Uplinks | *ISP Assigned* | — | Assigned IPs / Floating VIP |
 
-2. Phase 1: Linux Mint Management Machine Configuration
+## 2. Phase 1: Linux Mint Management Machine Configuration
+
 The management machine runs full graphical software locally to orchestrate the cluster while acting as the network boot server, hardware time master, centralized security gatekeeper, and cluster quorum tie-breaker.
-1. Network Interface Definition
-Bind Linux Mint's dedicated KVM ports to strict /30 subnets. Ensure no default gateways are specified on these lines to isolate management and boot assets from the public internet.
 
+### 1. Network Interface Definition
+Bind Linux Mint's dedicated KVM ports to strict `/30` subnets. Ensure **no default gateways** are specified on these lines to isolate management and boot assets from the public internet.
+```bash
 # Configure Mint Interface 2 to service Server 1
 nmcli connection add type ethernet con-name kvm-node1 ifname eth_kvm1 \
   ip4 192.168.99.1/30 ipv4.gateway "" ipv4.method manual
@@ -96,33 +79,33 @@ nmcli connection add type ethernet con-name kvm-node1 ifname eth_kvm1 \
 # Configure Mint Interface 3 to service Server 2
 nmcli connection add type ethernet con-name kvm-node2 ifname eth_kvm2 \
   ip4 192.168.99.5/30 ipv4.gateway "" ipv4.method manual
+```
 
-
-2. Serial Port Hardware Locking (udev)
+### 2. Serial Port Hardware Locking (`udev`)
 Create permanent device symlinks based on the USB-to-Serial chipset markers of your hardware timing sources to prevent device paths from switching on reboot.
-Create and open /etc/udev/rules.d/99-stratum1-clocks.rules:
 
+Create and open `/etc/udev/rules.d/99-stratum1-clocks.rules`:
+```ini
 # u-blox ZED-X20P Multi-Band Receiver
 SUBSYSTEM=="tty", ATTRS{idVendor}=="1546", ATTRS{idProduct}=="0506", SYMLINK+="ttyUSB_UBLOX"
 
 # Stanford Research Systems PRS10 Rubidium Standard
 SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6001", SYMLINK+="ttyUSB_PRS10"
-
-
+```
 Reload the system rules engine:
-
+```bash
 sudo udevadm control --reload-rules && sudo udevadm trigger
+```
 
-
-3. SatPulse Timing Frontend Setup
+### 3. SatPulse Timing Frontend Setup
 Install the SatPulse package tool on your Mint desktop:
-
+```bash
 wget https://satpulse.net
 sudo apt update && sudo apt install ./satpulsed_amd64.deb
+```
 
-
-Write the system hardware parameters configuration file to /etc/satpulse/satpulse.toml:
-
+Write the system hardware parameters configuration file to `/etc/satpulse/satpulse.toml`:
+```toml
 [gps]
 device = "/dev/ttyUSB_UBLOX"
 baudrate = 115200
@@ -144,17 +127,17 @@ monitor_interval = 10
 [pps]
 device = "/dev/pps0"        # Disciplined hardware 1PPS signal coming from the PRS10
 clear_edge = false
+```
+Enable the daemon: `sudo systemctl enable --now satpulsed`
 
-
-Enable the daemon: sudo systemctl enable --now satpulsed
-4. Chrony Master Core Configuration
+### 4. Chrony Master Core Configuration
 Install Chrony on the Mint host:
-
+```bash
 sudo apt install -y chrony
+```
 
-
-Update /etc/chrony/chrony.conf to ingest the SatPulse socket streams and restrict broadcast capability to your servers:
-
+Update `/etc/chrony/chrony.conf` to ingest the SatPulse socket streams and restrict broadcast capability to your servers:
+```ini
 # Consume stabilized atomic tracking data streams from SatPulse
 refclock SOCK /var/run/satpulse/chrony.sock delay 0.000 refID ATOM precision -24 lock PPS weight 100
 refclock PPS /dev/pps0 lock ATOM refID PPS precision -24 prefer
@@ -169,31 +152,30 @@ allow 192.168.99.2
 allow 192.168.99.6
 
 local stratum 1 weight 100
+```
+Restart the time loop: `sudo systemctl restart chrony`
 
-
-Restart the time loop: sudo systemctl restart chrony
-5. Centralized ACME Certbot Setup (Constellix Integration)
+### 5. Centralized ACME Certbot Setup (Constellix Integration)
 To securely pull wildcard certificates using the Constellix DNS API, run these commands from your desktop shell:
-
+```bash
 sudo apt install -y certbot python3-pip
 # Install the authenticated API bindings plugin natively
 sudo python3 -m pip install certbot-dns-constellix
+```
 
-
-Obtain your API Key and Secret Key from your Constellix Management Portal under Edit My Info. Map them into a local access credential configuration file at /etc/letsencrypt/constellix.ini:
-
+Obtain your **API Key** and **Secret Key** from your Constellix Management Portal under *Edit My Info*. Map them into a local access credential configuration file at `/etc/letsencrypt/constellix.ini`:
+```ini
 certbot-dns-constellix:dns_constellix_apikey = YOUR_CONSTELLIX_API_KEY_HERE
 certbot-dns-constellix:dns_constellix_secretkey = YOUR_CONSTELLIX_SECRET_KEY_HERE
 certbot-dns-constellix:dns_constellix_endpoint = https://constellix.com
-
-
+```
 Secure this key verification credential string tightly:
-
+```bash
 sudo chmod 600 /etc/letsencrypt/constellix.ini
-
+```
 
 Execute your initial verification build loop out-of-band to claim your global root and wildcard subdomains:
-
+```bash
 sudo certbot certonly \
   --authenticator certbot-dns-constellix:dns-constellix \
   --dns-constellix-credentials /etc/letsencrypt/constellix.ini \
@@ -203,11 +185,11 @@ sudo certbot certonly \
   --non-interactive \
   --agree-tos \
   -m admin@example.com
+```
 
-
-6. Authenticated Virtual Media Storage (Samba)
+### 6. Authenticated Virtual Media Storage (Samba)
 Deploy an isolated storage server to stream operating system blocks directly to the server nodes at boot time.
-
+```bash
 sudo apt install -y samba qemu-utils
 
 # Create an isolated unprivileged user profile for hardware attachments
@@ -218,17 +200,17 @@ sudo smbpasswd -a kvmbootuser
 sudo mkdir -p /srv/smb/server-disks
 sudo chown -R kvmbootuser:kvmbootuser /srv/smb/server-disks
 sudo chmod 700 /srv/smb/server-disks
-
+```
 
 Build the raw target images that act as virtual drives for the servers:
-
+```bash
 sudo qemu-img create -f raw /srv/smb/server-disks/server1-root.img 100G
 sudo qemu-img create -f raw /srv/smb/server-disks/server2-root.img 100G
 sudo chown kvmbootuser:kvmbootuser /srv/smb/server-disks/*.img
+```
 
-
-Append this block configuration profile to /etc/samba/smb.conf to lock down storage streaming to the point-to-point /30 management lines:
-
+Append this block configuration profile to `/etc/samba/smb.conf` to lock down storage streaming to the point-to-point /30 management lines:
+```ini
 [server-disks]
    path = /srv/smb/server-disks
    browseable = no
@@ -238,17 +220,17 @@ Append this block configuration profile to /etc/samba/smb.conf to lock down stor
    force user = kvmbootuser
    interfaces = 192.168.99.1 192.168.99.5
    bind interfaces only = yes
+```
+Restart the service: `sudo systemctl restart smbd`
 
-
-Restart the service: sudo systemctl restart smbd
-7. Deploy GUI Admin Tools, Quorum Engine Backend, and IPMI Utilities
-
+### 7. Deploy GUI Admin Tools, Quorum Engine Backend, and IPMI Utilities
+```bash
 sudo apt install -y virt-manager virt-viewer ansible corosync-qnetd ipmitool
 sudo systemctl enable --now corosync-qnetd
+```
 
-
-Configure local terminal shortcuts on the Mint PC for programmatic hardware chassis command execution over the /30 lines. Append these mappings to ~/.bashrc:
-
+Configure local terminal shortcuts on the Mint PC for programmatic hardware chassis command execution over the `/30` lines. Append these mappings to `~/.bashrc`:
+```bash
 # Server 1 Chassis Commands
 alias s1-status="ipmitool -I lanplus -H 192.168.99.2 -U root -P 'YourIPMIPassword' power status"
 alias s1-on="ipmitool -I lanplus -H 192.168.99.2 -U root -P 'YourIPMIPassword' power on"
@@ -260,29 +242,27 @@ alias s2-status="ipmitool -I lanplus -H 192.168.99.6 -U root -P 'YourIPMIPasswor
 alias s2-on="ipmitool -I lanplus -H 192.168.99.6 -U root -P 'YourIPMIPassword' power on"
 alias s2-off="ipmitool -I lanplus -H 192.168.99.6 -U root -P 'YourIPMIPassword' power soft"
 alias s2-reset="ipmitool -I lanplus -H 192.168.99.6 -U root -P 'YourIPMIPassword' power reset"
+```
+Activate changes: `source ~/.bashrc`
 
-
-Activate changes: source ~/.bashrc
-8. Initialize the Master YubiHSM 2 Cryptographic Guard
+### 8. Initialize the Master YubiHSM 2 Cryptographic Guard
 Plug the YubiHSM 2 directly into a rear USB port on the Mint station.
-
+```bash
 sudo apt install -y yubihsm-shell yubihsm-connector opensc
-
-
-Modify /etc/yubihsm-connector.yaml to stream cryptographic signatures exclusively over the point-to-point lines:
-
+```
+Modify `/etc/yubihsm-connector.yaml` to stream cryptographic signatures exclusively over the point-to-point lines:
+```yaml
 listen: "192.168.99.1:2345,192.168.99.5:2345"
 log_level: "info"
+```
+Fire up the backend engine: `sudo systemctl enable --now yubihsm-connector`
 
-
-Fire up the backend engine: sudo systemctl enable --now yubihsm-connector
 Log into the device interactive shell using default administrative slot 1 credentials to generate non-exportable hardware object keys:
-
+```bash
 yubihsm-shell --connector=http://127.0.0.1:2345 --authkey=1
-
-
+```
 Inside the prompt context execution layer, declare the storage keys:
-
+```text
 # Generate DKIM Email Signing Module (Object ID 0x0100)
 yubihsm> generate asymmetric 0 0x0100 dkim_mail_key 1 sign-pkcs1c,sign-eddsa rsa2048
 
@@ -290,24 +270,28 @@ yubihsm> generate asymmetric 0 0x0100 dkim_mail_key 1 sign-pkcs1c,sign-eddsa rsa
 yubihsm> generate asymmetric 0 0x0200 sips_sip_key 1 sign-pkcs1c,decrypt eccp256
 
 yubihsm> quit
+```
 
+## 3. Phase 2: Diskless Provisioning Sequence
 
-3. Phase 2: Diskless Provisioning Sequence
-Open your desktop browser on Linux Mint and access Server 1's IPMI control board at https://192.168.99.2.
-Navigate to Virtual Media → CD-ROM Image / Virtual Storage.
-Choose ISO File / Hard Disk Image mode.
-Input the share metrics:
-Share Host: 192.168.99.1
-Path to Image: \server-disks\server1-root.img
-Username: kvmbootuser
-Password: (Samba user password)
-Click Mount / Plug-In. Repeat this workflow on Server 2's portal (https://192.168.99.6), targeting host 192.168.99.5 and path server2-root.img.
-Power on the hardware nodes, hit F11, and select the ATEN Virtual Disk profile as the primary boot target. Run a clean, headless Debian 12 installation targeted directly onto the virtual media volumes.
-4. Phase 3: Headless Server Architecture & Storage Setup
+1. Open your desktop browser on Linux Mint and access **Server 1's IPMI control board** at `https://192.168.99.2`.
+2. Navigate to **Virtual Media** → **CD-ROM Image / Virtual Storage**.
+3. Choose **ISO File / Hard Disk Image** mode.
+4. Input the share metrics:
+   * **Share Host:** `192.168.99.1`
+   * **Path to Image:** `\server-disks\server1-root.img`
+   * **Username:** `kvmbootuser`
+   * **Password:** *(Samba user password)*
+5. Click **Mount / Plug-In**. Repeat this workflow on **Server 2's portal** (`https://192.168.99.6`), targeting host `192.168.99.5` and path `server2-root.img`.
+6. Power on the hardware nodes, hit **F11**, and select the **ATEN Virtual Disk** profile as the primary boot target. Run a clean, headless **Debian 12 installation** targeted directly onto the virtual media volumes.
+
+## 4. Phase 3: Headless Server Architecture & Storage Setup
+
 Perform these steps via SSH from your Linux Mint desktop terminal once the servers are running their base Debian 12 environments.
-1. Setup ZFS RAIDZ2 and Local NVMe Caching
-Configure ZFS and bundle the 12 spinning SAS drives together, offloading high-frequency synchronous operations to the local NVMe drive to prevent random I/O bottlenecking.
 
+### 1. Setup ZFS RAIDZ2 and Local NVMe Caching
+Configure ZFS and bundle the 12 spinning SAS drives together, offloading high-frequency synchronous operations to the local NVMe drive to prevent random I/O bottlenecking.
+```bash
 apt install -y linux-headers-amd64 zfsutils-linux
 
 # Group the 12 disks using an optimized 6+6 disk stripe layout to double random write IOPS
@@ -323,30 +307,30 @@ zpool add tank cache nvme-vdev-partition2
 zfs create tank/gluster-brick
 zfs set xattr=sa tank/gluster-brick
 zfs set recordsize=128k tank/gluster-brick
+```
 
-
-2. Bind GlusterFS Replication Across the 200 GbE Interconnect
-Optimize the server network buffers inside /etc/sysctl.conf on both hosts to stream large file operations cleanly over the Mellanox ConnectX-6 cards:
-
+### 2. Bind GlusterFS Replication Across the 200 GbE Interconnect
+Optimize the server network buffers inside `/etc/sysctl.conf` on both hosts to stream large file operations cleanly over the Mellanox ConnectX-6 cards:
+```ini
 net.core.rmem_max = 67108864
 net.core.wmem_max = 67108864
 net.ipv4.tcp_rmem = 4096 87380 33554432
 net.ipv4.tcp_wmem = 4096 65536 33554432
 net.core.netdev_max_backlog = 100000
+```
+Apply with `sysctl -p`.
 
-
-Apply with sysctl -p.
-Configure network parameters inside /etc/network/interfaces on both servers to initialize your 200 GbE links with Jumbo Frames:
-
+Configure network parameters inside `/etc/network/interfaces` on both servers to initialize your 200 GbE links with **Jumbo Frames**:
+```ini
 auto eth200g
 iface eth200g inet static
     address 10.200.0.1  # (Use 10.200.0.2 on Server 2)
     netmask 255.255.255.0
     mtu 9000
+```
 
-
-From Server 1, connect the distributed filesystem layers over the 200 GbE link:
-
+From **Server 1**, connect the distributed filesystem layers over the 200 GbE link:
+```bash
 apt install -y glusterfs-server
 gluster peer probe 10.200.0.2
 
@@ -364,12 +348,13 @@ gluster volume start HA-VM-Storage
 # Local client mount point on both nodes
 mkdir -p /mnt/ha-storage
 mount -t glusterfs 127.0.0.1:/HA-VM-Storage /mnt/ha-storage
+```
 
+## 5. Phase 4: High-Availability Cluster Core Setup
 
-5. Phase 4: High-Availability Cluster Core Setup
-1. Cluster Quorum Configuration (With Mint as QDevice Witness)
+### 1. Cluster Quorum Configuration (With Mint as QDevice Witness)
 Configure Pacemaker and Corosync on both headless nodes to complete the clustering environment.
-
+```bash
 apt install -y pacemaker corosync corosync-qdevice pcs yubihsm-pkcs11 gnutls-bin
 pcs host auth server1 server2
 pcs cluster setup ha_cluster server1 server2
@@ -377,26 +362,27 @@ pcs cluster setup ha_cluster server1 server2
 # Register the Mint machine via its point-to-point IP address as the tie-breaker
 pcs cluster qdevice add net host=192.168.99.1
 pcs cluster start --all
+```
 
-
-Configure STONITH hardware fencing parameters on the cluster so that Pacemaker can execute an out-of-band hard-reset down the /30 power management pipelines if split-brain occurs:
-
+Configure STONITH hardware fencing parameters on the cluster so that Pacemaker can execute an out-of-band hard-reset down the `/30` power management pipelines if split-brain occurs:
+```bash
 pcs resource create fence_server1 fence_ipmilan ipaddr="192.168.99.2" login="root" passwd="YourIPMIPassword" lanplus=1 action=reboot op monitor interval=60s
 pcs resource create fence_server2 fence_ipmilan ipaddr="192.168.99.6" login="root" passwd="YourIPMIPassword" lanplus=1 action=reboot op monitor interval=60s
+```
 
-
-Expose the centralized YubiHSM PKCS#11 configuration maps locally by populating /etc/yubihsm_pkcs11.conf on both nodes:
-
+Expose the centralized YubiHSM PKCS#11 configuration maps locally by populating `/etc/yubihsm_pkcs11.conf` on **both nodes**:
+```ini
 # Server 1 hooks to 192.168.99.1 / Server 2 hooks to 192.168.99.5
 connector = http://192.168.99.1:2345
 debug = 0
+```
+Append to `/etc/environment`: `YUBIHSM_PKCS11_CONF=/etc/yubihsm_pkcs11.conf`
 
+### 2. Network Gateway Redundancy (Keepalived)
+Install **Keepalived** natively on the hosts to hold a shared virtual IP address (VIP) across physical links.
 
-Append to /etc/environment: YUBIHSM_PKCS11_CONF=/etc/yubihsm_pkcs11.conf
-2. Network Gateway Redundancy (Keepalived)
-Install Keepalived natively on the hosts to hold a shared virtual IP address (VIP) across physical links.
-/etc/keepalived/keepalived.conf (Server 1 example):
-
+`/etc/keepalived/keepalived.conf` (Server 1 example):
+```ini
 vrrp_instance VI_WAN {
     state MASTER
     interface eth0
@@ -418,44 +404,44 @@ vrrp_instance VI_LAN {
         10.0.0.1/8   # Floating Internal LAN IP (Class A)
     }
 }
+```
 
+## 6. Phase 5: Shorewall HA Configuration Files
 
-6. Phase 5: Shorewall HA Configuration Files
-Create these configurations in ~/infra-cluster/shorewall-configs/ on the Linux Mint Management PC to handle multi-zone routing and virtual IP bindings dynamically.
-/etc/shorewall/zones
+Create these configurations in `~/infra-cluster/shorewall-configs/` on the Linux Mint Management PC to handle multi-zone routing and virtual IP bindings dynamically.
 
+### `/etc/shorewall/zones`
+```ini
 # ZONE   TYPE    OPTIONS
 fw       firewall
 net      ipv4
 dmz      ipv4
+```
 
-
-/etc/shorewall/interfaces
-
+### `/etc/shorewall/interfaces`
+```ini
 # ZONE   INTERFACE   OPTIONS
 net      eth0        dhcp,nosmurfs,logmartians,required
 dmz      bond0       bridge,options
+```
 
-
-/etc/shorewall/policy
-
+### `/etc/shorewall/policy`
+```ini
 # SOURCE   DEST     POLICY    LOG LEVEL
-$FW        net      ACCEPT
-$FW        dmz      ACCEPT
+\(FW        net      ACCEPT\)FW        dmz      ACCEPT
 dmz        net      ACCEPT
 net        all      DROP      info
 all        all      REJECT    info
+```
 
-
-/etc/shorewall/rules
-Configure rules to forward traffic precisely to the FOSS applications inside your DMZ VMs (Class B allocations):
-
+### `/etc/shorewall/rules`
+```ini
 ########################################################################################################################
 # Shorewall Firewall Configuration File: /etc/shorewall/rules
 # Architecture: Dual-Node HA Front-End Cluster (Server 1 / Server 2)
 #
 # Zones:
-#   $FW   - The local firewall engine host platforms
+#   \$FW   - The local firewall engine host platforms
 #   net   - Public Internet WAN (eth0 / Floating Public VIP: 203.0.113.10)
 #   dmz   - Private Internal LAN / DMZ (bond0 / Floating LAN VIP: 10.0.0.1)
 ########################################################################################################################
@@ -482,7 +468,7 @@ ACCEPT          all             all
 # Drop NetBIOS broadcast noise from leaking into systems or logs
 DROP            net             all                             tcp     137,138,139
 DROP            net             all                             udp     137,138,139
-DROP            all             net                             udp     1900      # Block SSDP discovery noise
+DROP            all             net                             udp     1900      # Block SSDP noise
 
 # Reject ident lookups cleanly to avoid connection lag
 REJECT          net             all                             tcp     113
@@ -491,12 +477,12 @@ REJECT          net             all                             tcp     113
 # SECTION 2: ADMINISTRATIVE OUT-OF-BAND MANAGEMENT (CLASS A LAN ONLY)
 #=======================================================================================================================
 # Allow SSH connections into the firewalls ONLY from the secure internal Class A subnet range
-SSH(ACCEPT)     dmz:10.0.0.0/8  $FW
+SSH(ACCEPT)     dmz:10.0.0.0/8  \$FW
 
 # Allow the headless hypervisor nodes to run raw ping checks for cluster health monitoring
-Ping(ACCEPT)    dmz:10.0.0.0/8  $FW
-Ping(ACCEPT)    $FW             dmz:10.0.0.0/8
-Ping(ACCEPT)    $FW             net
+Ping(ACCEPT)    dmz:10.0.0.0/8  \$FW
+Ping(ACCEPT)    \$FW             dmz:10.0.0.0/8
+Ping(ACCEPT)    \$FW             net
 
 #=======================================================================================================================
 # SECTION 3: HTTP / HTTPS FRONT-END REVERSE PROXY PIPELINE (VM IP: 172.16.1.100)
@@ -534,59 +520,64 @@ DNAT            net             dmz:172.16.1.150                udp     10000:20
 # SECTION 6: BACK-END CORE NETWORK UTILITIES (ISOLATED TO LAN ZONE)
 #=======================================================================================================================
 # Authorize Kea DHCP Address Allocations over the local bridges
-ACCEPT          dmz             $FW                             udp     67,68
+ACCEPT          dmz             \$FW                             udp     67,68
 
 # Authorize Chrony NTP time broad-sync lookups against the Stratum 1 Master gateway
-ACCEPT          dmz             $FW                             udp     123
+ACCEPT          dmz             \$FW                             udp     123
 
 # Authorize NFS / Ganesha Storage Share communication limits
-ACCEPT          dmz             $FW                             tcp     2049
+ACCEPT          dmz             \$FW                             tcp     2049
 
 # LAST LINE -- DO NOT REMOVE
+```
 
+## 7. Phase 6: High-Performance RAM-Warmed VM Engine
 
-7. Phase 6: High-Performance RAM-Warmed VM Engine
 To bypass the random IOPS performance limitations of the 18TB spinning disks, configure a pre-boot system hook that loads virtual machine files directly into server RAM at boot time.
-1. Allocate Node Ramdisks
-Create a volatile tmpfs volume inside /etc/fstab on both nodes via the Ansible setup task:
 
+### 1. Allocate Node Ramdisks
+Create a volatile `tmpfs` volume inside `/etc/fstab` on both nodes via the Ansible setup task:
+```ini
 tmpfs   /mnt/vm-ramdisk   tmpfs   rw,nodev,nosuid,size=256G,mpol=interleave   0   0
+```
 
-
-2. Intercept Boot Requests via Libvirt Hooks
-Write the execution hook script to /etc/libvirt/hooks/qemu:
-
+### 2. Intercept Boot Requests via Libvirt Hooks
+Write the execution hook script to `/etc/libvirt/hooks/qemu`:
+```bash
 #!/bin/bash
-VM_NAME="$1"
-ACTION="$2"
-PHASE="$3"
+VM_NAME="\$1"
+ACTION="\$2"
+PHASE="\$3"
 
 GLUSTER_MNT="/mnt/ha-storage"
 RAM_MNT="/mnt/vm-ramdisk"
 
-if [ "$ACTION" = "prepare" ] && [ "$PHASE" = "begin" ]; then
-    if [ -f "$GLUSTER_MNT/$VM_NAME.qcow2" ]; then
+if [ "\(ACTION" = "prepare" ] && [ "\)PHASE" = "begin" ]; then
+    if [ -f "\(GLUSTER_MNT/\)VM_NAME.qcow2" ]; then
         # Stream the image sequentially over the 200GbE link straight into local memory
-        rsync -ah --inplace "$GLUSTER_MNT/$VM_NAME.qcow2" "$RAM_MNT/"
+        rsync -ah --inplace "\$GLUSTER_MNT/\(VM_NAME.qcow2" "\)RAM_MNT/"
     fi
 fi
+```
+Make it executable: `chmod +x /etc/libvirt/hooks/qemu`
 
-
-Make it executable: chmod +x /etc/libvirt/hooks/qemu
-3. Register Applications into Pacemaker HA
+### 3. Register Applications into Pacemaker HA
 Register your individual virtual machines as cluster resources via Pacemaker so they fail over automatically if an entire host experiences an outage:
-
+```bash
 pcs resource create VM_WebProxy ocf:heartbeat:VirtualDomain hypervisor="qemu:///system" config="/etc/libvirt/qemu/web-proxy.xml" migration_transport="ssh" op start timeout="300s"
 pcs resource create VM_Mailcow ocf:heartbeat:VirtualDomain hypervisor="qemu:///system" config="/etc/libvirt/qemu/mailcow.xml" migration_transport="ssh" op start timeout="300s"
 pcs resource create VM_VoIP ocf:heartbeat:VirtualDomain hypervisor="qemu:///system" config="/etc/libvirt/qemu/voip-stack.xml" migration_transport="ssh" op start timeout="300s"
+```
 
+## 8. Phase 7: FOSS Application Stack Detailed Configuration
 
-8. Phase 7: FOSS Application Stack Detailed Configuration
-Every application runs inside dedicated Debian 12 Guest VMs sitting in the RAM-Backed drive paths (/mnt/vm-ramdisk/).
-1. Webhosting & Content Delivery Suite (VM IP: 172.16.1.100)
+Every application runs inside dedicated Debian 12 Guest VMs sitting in the RAM-Backed drive paths (`/mnt/vm-ramdisk/`).
+
+### 1. Webhosting & Content Delivery Suite (VM IP: `172.16.1.100`)
 This VM runs NGINX for SSL termination, Varnish for static CDN edge caching, and Apache to execute backend worker code.
-Varnish Caching Layer Frontend (/etc/varnish/default.vcl)
 
+##### Varnish Caching Layer Frontend (`/etc/varnish/default.vcl`)
+```vcl
 vcl 4.1;
 
 backend default {
@@ -596,14 +587,14 @@ backend default {
 
 sub vcl_recv {
     # Cache all static multimedia components cleanly
-    if (req.method == "GET" && req.url ~ "\.(png|jpg|jpeg|gif|css|js|ico|webp)$") {
+    if (req.method == "GET" && req.url ~ "\.(png|jpg|jpeg|gif|css|js|ico|webp)\$") {
         return (hash);
     }
 }
+```
 
-
-NGINX SSL and Proxy Layer (/etc/nginx/sites-available/default)
-
+##### NGINX SSL and Proxy Layer (`/etc/nginx/sites-available/default`)
+```nginx
 server {
     listen 443 ssl http2;
     server_name ://example.com;
@@ -623,65 +614,68 @@ server {
 
     location / {
         proxy_pass http://127.0.0.1:8181; # Hands processing backend tasks to Apache
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
     }
 }
+```
 
-
-Apache Web Server Engine Backend (/etc/apache2/ports.conf)
-
+##### Apache Web Server Engine Backend (`/etc/apache2/ports.conf`)
+```apache
 Listen 8181
+```
 
+### 2. Email & Calendaring Suite (VM IP: `172.16.1.200`)
+Deploy **Mailcow: Dockerized** to integrate Postfix, Dovecot, and SOGo CalDAV groupware seamlessly.
 
-2. Email & Calendaring Suite (VM IP: 172.16.1.200)
-Deploy Mailcow: Dockerized to integrate Postfix, Dovecot, and SOGo CalDAV groupware seamlessly.
-Decouple Volatile Engine from Storage
-Inside the VM, mount a remote path from your host's persistent /mnt/ha-storage/mail-data/ array directly into the VM container deployment root.
-mailcow.conf parameters:
+##### Decouple Volatile Engine from Storage
+Inside the VM, mount a remote path from your host's persistent `/mnt/ha-storage/mail-data/` array directly into the VM container deployment root.
 
+`mailcow.conf` parameters:
+```ini
 # Define domain constraints
 DOWNLOAD_TIMEOUT=20
 MAILCOW_HOSTNAME=://example.com
 
 # Direct Docker to place high-frequency state data blocks onto the persistent storage mount
 vmail_volume=/mnt/persistent-gluster/vmail
+```
 
-
-Symlink Local Cert Containers Out-of-Band
-
+##### Symlink Local Cert Containers Out-of-Band
+```bash
 rm -f data/assets/ssl/cert.pem data/assets/ssl/key.pem
 ln -s /mnt/persistent-gluster/ssl-certs/fullchain.pem data/assets/ssl/cert.pem
 ln -s /mnt/persistent-gluster/ssl-certs/privkey.pem data/assets/ssl/key.pem
-
+```
 
 Launch the deployment from the Guest shell:
-
+```bash
 docker compose up -d
+```
 
+### 3. VoIP Telephony Framework (VM IP: `172.16.1.150`)
+Kamailio sits on port `5060` handling state tracking and defense, multiplexing audio streams to local Asterisk PBX nodes.
 
-3. VoIP Telephony Framework (VM IP: 172.16.1.150)
-Kamailio sits on port 5060 handling state tracking and defense, multiplexing audio streams to local Asterisk PBX nodes.
-Kamailio Ingress Script Core (/etc/kamailio/kamailio.cfg)
-
+##### Kamailio Ingress Script Core (`/etc/kamailio/kamailio.cfg`)
+```route
 route[REGISTRAR] {
     if (!is_method("REGISTER")) return;
     # Validate client permissions and forward parameters to Asterisk array
-    $ru = "sip:127.0.0.1:5061";
+    \$ru = "sip:127.0.0.1:5061";
     route(RELAY);
 }
+```
 
-
-Kamailio Secure TLS Parameters Configuration (/etc/kamailio/tls.cfg)
-
+##### Kamailio Secure TLS Parameters Configuration (`/etc/kamailio/tls.cfg`)
+```ini
 [server:default]
 method = TLSv1.2+
 certificate = /mnt/persistent-gluster/ssl-certs/fullchain.pem
 private_key = /mnt/persistent-gluster/ssl-certs/privkey.pem
+```
 
-
-Asterisk PBX Logic Configuration (/etc/asterisk/sip.conf)
-
+##### Asterisk PBX Logic Configuration (`/etc/asterisk/sip.conf`)
+```ini
 [general]
 bindport=5061
 bindaddr=127.0.0.1
@@ -691,13 +685,14 @@ type=friend
 context=incoming-calls
 host=127.0.0.1
 port=5060
+```
 
-
-4. Shared Core Network Services (Executed Natively on Hypervisor Hosts)
+### 4. Shared Core Network Services (Executed Natively on Hypervisor Hosts)
 DHCP and Network File System parameters handle infrastructure data sharing natively across the nodes.
-Kea DHCP Highly Available Partner Engine (/etc/kea/kea-dhcp4.conf)
-Configure high-availability replication across both headless hosts:
 
+##### Kea DHCP Highly Available Partner Engine (`/etc/kea/kea-dhcp4.conf`)
+Configure high-availability replication across both headless hosts:
+```json
 {
 "Dhcp4": {
     "interfaces-config": {
@@ -722,11 +717,11 @@ Configure high-availability replication across both headless hosts:
     }]
 }
 }
+```
 
-
-NFS-Ganesha Clustered Shared Storage Gateway (/etc/ganesha/ganesha.conf)
+##### NFS-Ganesha Clustered Shared Storage Gateway (`/etc/ganesha/ganesha.conf`)
 Direct Ganesha to export your local synchronized GlusterFS blocks cleanly over the internal core networks:
-
+```ini
 EXPORT {
     Export_Id = 77;
     Path = /mnt/ha-storage;
@@ -738,33 +733,36 @@ EXPORT {
         Hostname = "127.0.0.1";
     }
 }
+```
 
+## 9. Phase 8: Machine-to-Machine Orchestration Strategy
 
-9. Phase 8: Machine-to-Machine Orchestration Strategy
-1. Passwordless Secure Connection Layer
+### 1. Passwordless Secure Connection Layer
 Create an SSH deployment profile on your Linux Mint PC and distribute it to both nodes:
-
+```bash
 ssh-keygen -t ed25519 -C "mgmt-mint-pc"
 ssh-copy-id root@192.168.99.2
 ssh-copy-id root@192.168.99.6
+```
 
+### 2. Centralized GUI Hypervisor Control
+Open **Virt-Manager** on your Linux Mint desktop workspace. Go to **File → Add Connection**. Check **"Connect to remote host over SSH"**, enter `root` as the user, and target `192.168.99.2` (Server 1). Repeat for Server 2 (`192.168.99.6`). You can now manage VMs and open graphical spice consoles cleanly from your desktop.
 
-2. Centralized GUI Hypervisor Control
-Open Virt-Manager on your Linux Mint desktop workspace. Go to File → Add Connection. Check "Connect to remote host over SSH", enter root as the user, and target 192.168.99.2 (Server 1). Repeat for Server 2 (192.168.99.6). You can now manage VMs and open graphical spice consoles cleanly from your desktop.
-3. Configuration Syncing via Ansible Playbooks
-Deploy updates using an Ansible Playbook from your Linux Mint terminal:
-Create ~/infra-cluster/hosts.ini:
+### 3. Configuration Syncing via Ansible Playbooks
+Deploy updates using an **Ansible Playbook** from your Linux Mint terminal:
 
+Create `~/infra-cluster/hosts.ini`:
+```ini
 [hypervisors]
 server1 ansible_host=192.168.99.2
 server2 ansible_host=192.168.99.6
 
 [hypervisors:vars]
 ansible_user=root
+```
 
-
-Create ~/infra-cluster/deploy-certs.yml to automatically handle Certbot token redistribution out-of-band whenever a renewal hits:
-
+Create `~/infra-cluster/deploy-certs.yml` to automatically handle Certbot token redistribution out-of-band whenever a renewal hits:
+```yaml
 ---
 - name: Distribute Renewed SSL Certificates to Cluster
   hosts: hypervisors
@@ -787,38 +785,45 @@ Create ~/infra-cluster/deploy-certs.yml to automatically handle Certbot token re
         ssh -o StrictHostKeyChecking=no root@172.16.1.100 'systemctl reload nginx'
         ssh -o StrictHostKeyChecking=no root@172.16.1.150 'kamcmd tls.reload'
       failed_when: false
+```
 
-
-Map this playbook to execute automatically by dropping an execution hook script onto Linux Mint at /etc/letsencrypt/renewal-hooks/deploy/sync-to-cluster.sh:
-
+Map this playbook to execute automatically by dropping an execution hook script onto Linux Mint at `/etc/letsencrypt/renewal-hooks/deploy/sync-to-cluster.sh`:
+```bash
 #!/bin/bash
 cd /home/user/infra-cluster/
 ansible-playbook -i hosts.ini deploy-certs.yml
+```
+Make the hook executable: `sudo chmod +x /etc/letsencrypt/renewal-hooks/deploy/sync-to-cluster.sh`
 
+## 10. Operational Status Check
 
-Make the hook executable: sudo chmod +x /etc/letsencrypt/renewal-hooks/deploy/sync-to-cluster.sh
-10. Operational Status Check
 To verify the serial tracking chain and check the status of the atomic physics package inside the PRS10, run the tracking metrics via the SatPulse diagnostic monitor on your Linux Mint PC:
 
+```bash
 satpulse-cli monitor
-
+```
 
 The terminal output will display real-time physical telemetry pulled directly via the serial connections:
-GNSS Fix: 3D/DGNSS / Satellites Tracked: 24+
-PRS10 Lock Status: Locked to Rubidium Resonance
-Lamp Voltage: ~4.1V (Verifies atomic lamp lifetime health)
-System Time Drift: ±0.000000002 seconds (Sub-microsecond synchronization achieved)
+*   **GNSS Fix:** `3D/DGNSS / Satellites Tracked: 24+`
+*   **PRS10 Lock Status:** `Locked to Rubidium Resonance`
+*   **Lamp Voltage:** `~4.1V` (Verifies atomic lamp lifetime health)
+*   **System Time Drift:** `±0.000000002 seconds` (Sub-microsecond synchronization achieved)
+
 Test your end-to-end certificate acquisition process manually using the ACME staging sandbox to verify integration before launching live traffic:
-
+```bash
 sudo certbot renew --dry-run
+```
 
+## 11. Advanced Anti-Tamper Security: GPS Geofenced Hardware Security Module
 
-11. Advanced Anti-Tamper Security: GPS Geofenced Hardware Security Module
 To protect your system configuration against theft or physical equipment moving out of the secure perimeter, the decryption keys for your encrypted ZFS storage pools are secured inside the YubiHSM 2 and bound directly to a geofenced script on the Linux Mint PC.
-1. Centralize ZFS Encryption Passphrases inside the YubiHSM 2
-Rather than keeping raw text keys inside script blocks on the headless hypervisors, store your ZFS Pool passphrases as Opaque Data Objects inside the YubiHSM 2 hardware. The servers can only read these values if they possess a valid authentication session token authorized by the Management PC.
-From your Linux Mint machine, generate two 64-byte high-entropy keys and inject them into protected slots (Object ID 0x0111 for Server 1, Object ID 0x0112 for Server 2) with the data reading capability restricted:
 
+### 1. Centralize ZFS Encryption Passphrases inside the YubiHSM 2
+Rather than keeping raw text keys inside script blocks on the headless hypervisors, store your ZFS Pool passphrases as **Opaque Data Objects** inside the YubiHSM 2 hardware. The servers can only read these values if they possess a valid authentication session token authorized by the Management PC.
+
+From your Linux Mint machine, generate two 64-byte high-entropy keys and inject them into protected slots (`Object ID 0x0111` for Server 1, `Object ID 0x0112` for Server 2) with the data reading capability restricted:
+
+```bash
 # Generate key binaries out-of-band on Mint memory path
 openssl rand -hex 64 > /dev/shm/s1_zfs.key
 openssl rand -hex 64 > /dev/shm/s2_zfs.key
@@ -835,12 +840,13 @@ yubihsm-shell --connector=http://127.0.0.1:2345 --authkey=1 \
 
 # Scrub volatile memory instances instantly
 rm -f /dev/shm/s*.key
+```
 
+### 2. Set Up the Automated GPS Geofence Daemon (Linux Mint)
+Since your **u-blox ZED-X20P** receiver outputs continuous NMEA string logs to your management PC, you can configure a lightweight python service engine (`/usr/local/bin/geofence-sentinel.py`) to parse coordinate changes and act as a cryptographic circuit breaker.
 
-2. Set Up the Automated GPS Geofence Daemon (Linux Mint)
-Since your u-blox ZED-X20P receiver outputs continuous NMEA string logs to your management PC, you can configure a lightweight python service engine (/usr/local/bin/geofence-sentinel.py) to parse coordinate changes and act as a cryptographic circuit breaker.
-Create /usr/local/bin/geofence-sentinel.py:
-
+Create `/usr/local/bin/geofence-sentinel.py`:
+```python
 #!/usr/bin/env python3
 import time
 import subprocess
@@ -880,7 +886,7 @@ def main():
 
     with open(SERIAL_PORT, "r") as serial_stream:
         for line in serial_stream:
-            if line.startswith("$GNGGA") or line.startswith("$GPGGA"):
+            if line.startswith("GNGGA") or line.startswith("GPGGA"):
                 parts = line.split(",")
                 if parts[6] != "0":  # Ensure a live validation satellite lock is active
                     try:
@@ -902,10 +908,10 @@ def main():
 
 if __name__ == "__main__":
     main()
+```
 
-
-Create the systemd wrapper service unit file at /etc/systemd/system/geofence-sentinel.service:
-
+Create the systemd wrapper service unit file at `/etc/systemd/system/geofence-sentinel.service`:
+```ini
 [Unit]
 Description=GPS Geofence Cryptographic Circuit Breaker
 After=satpulsed.service
@@ -919,22 +925,24 @@ RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
+```
+Enable and launch the daemon: `sudo systemctl enable --now geofence-sentinel`
 
+### 3. Implement the Physical Override Calibration Suite
+To allow relocation or recalibration, register a separate **YubiKey 5 Series** token on your Linux Mint machine using its secure internal hardware **PIV (Personal Identity Verification) Smart Card module**. 
 
-Enable and launch the daemon: sudo systemctl enable --now geofence-sentinel
-3. Implement the Physical Override Calibration Suite
-To allow relocation or recalibration, register a separate YubiKey 5 Series token on your Linux Mint machine using its secure internal hardware PIV (Personal Identity Verification) Smart Card module.
 The calibration script requires the administrator to insert their YubiKey 5 token, verify ownership using a challenge-response verification loop, enter their alphanumeric PIN, and extract clean coordinate values directly from the u-blox GPS stream to commit a new baseline profile.
-Initialize the Admin YubiKey 5 Token PIV Slot:
 
+Initialize the Admin YubiKey 5 Token PIV Slot:
+```bash
 yubico-piv-tool -a generate -s 9a -A RSA2048 -o /tmp/admin_pub.pem
 yubico-piv-tool -a selfsign-certificate -s 9a -S "/CN=ClusterAdmin/" -i /tmp/admin_pub.pem -o /tmp/admin_cert.pem
 yubico-piv-tool -a import-certificate -s 9a -i /tmp/admin_cert.pem
 rm /tmp/admin_*.pem
+```
 
-
-Build the Safe Calibration Script (/usr/local/sbin/calibrate-geofence.sh) on the Linux Mint Management PC:
-
+Build the Safe Calibration Script (`/usr/local/sbin/calibrate-geofence.sh`) on the Linux Mint Management PC:
+```bash
 #!/bin/bash
 set -e
 
@@ -948,8 +956,8 @@ echo ""
 
 echo "Verifying hardware key signature authorization token..."
 set +e
-yubico-piv-tool -a test-signature -s 9a -P "$PIN_STR" > /dev/null 2>&1
-if [ $? -ne 0 ]; then
+yubico-piv-tool -a test-signature -s 9a -P "\$PIN_STR" > /dev/null 2>&1
+if [ \$? -ne 0 ]; then
     echo "ERROR: Invalid Token PIN or Administrative Signature Verification Failed."
     exit 1
 fi
@@ -958,20 +966,20 @@ echo "Hardware Signature Verified. Authorization Granted."
 
 echo "Polling u-blox ZED-X20P GPS stream for current precise coordinates..."
 while read -r line; do
-    if [[ "$line" =~ ^\$G.GGA ]]; then
-        IFS=',' read -r -a p <<< "$line"
-        if [ "${p[6]}" != "0" ]; then
-            raw_lat=${p[2]}
-            lat=$(echo "scale=6; (${raw_lat:0:2}) + (${raw_lat:2}/60)" | bc)
-            if [ "${p[3]}" == "S" ]; then lat="-$lat"; fi
+    if [[ "\$line" =~ ^\$G.GGA ]]; then
+        IFS=',' read -r -a p <<< "\$line"
+        if [ "\${p[6]}" != "0" ]; then
+            raw_lat=\${p[2]}
+            lat=\$(echo "scale=6; (\({raw_lat:0:2}) + (\){raw_lat:2}/60)" | bc)
+            if [ "\({p[3]}" == "S" ]; then lat="-\)lat"; fi
 
-            raw_lon=${p[4]}
-            lon=$(echo "scale=6; (${raw_lon:0:3}) + (${p[4]:3}/60)" | bc)
-            if [ "${p[5]}" == "W" ]; then lon="-$lon"; fi
+            raw_lon=\${p[4]}
+            lon=\$(echo "scale=6; (\({raw_lon:0:3}) + (\){p[4]:3}/60)" | bc)
+            if [ "\({p[5]}" == "W" ]; then lon="-\)lon"; fi
 
-            echo "$lat,$lon" > "$GEO_FILE"
-            chmod 600 "$GEO_FILE"
-            echo "SUCCESS: New tracking baseline committed: ($lat, $lon)"
+            echo "\$lat,lon" > "GEO_FILE"
+            chmod 600 "\$GEO_FILE"
+            echo "SUCCESS: New tracking baseline committed: (lat, lon)"
             
             echo "Re-activating network key server channels..."
             systemctl start yubihsm-connector
@@ -979,20 +987,21 @@ while read -r line; do
             break
         fi
     fi
-done < "$SERIAL_PORT"
+done < "\$SERIAL_PORT"
+```
+Make the script executable only by root: `sudo chmod 700 /usr/local/sbin/calibrate-geofence.sh`
 
+### 4. Configure the Automated ZFS Key-Verification Script on the Node Cluster
+To protect data while the cluster is running, deploy a light background tracking task via cron on both headless hosts (`/usr/local/bin/zfs-heartbeat-fence.sh`). This script queries the gateway interface every 60 seconds; if the geofence drops or the management PC is disconnected, it immediately flushes the ZFS keys from kernel memory and targets the mount volumes for emergency isolation:
 
-Make the script executable only by root: sudo chmod 700 /usr/local/sbin/calibrate-geofence.sh
-4. Configure the Automated ZFS Key-Verification Script on the Node Cluster
-To protect data while the cluster is running, deploy a light background tracking task via cron on both headless hosts (/usr/local/bin/zfs-heartbeat-fence.sh). This script queries the gateway interface every 60 seconds; if the geofence drops or the management PC is disconnected, it immediately flushes the ZFS keys from kernel memory and targets the mount volumes for emergency isolation:
-
+```bash
 #!/bin/bash
 MINT_GATEWAY="192.168.99.1" # (Use 192.168.99.5 on Server 2)
 
 # Check if the YubiHSM 2 API port is alive and responsive over the /30 subnet
-curl -s --connect-timeout 5 http://${MINT_GATEWAY}:2345/connector/status > /dev/null 2>&1
+curl -s --connect-timeout 5 http://\${MINT_GATEWAY}:2345/connector/status > /dev/null 2>&1
 
-if [ $? -ne 0 ]; then
+if [ \$? -ne 0 ]; then
     echo "CRITICAL WARNING: Vault connection severed or Geofence circuit tripped!" | wall
     echo "Initiating emergency cryptographic shutdown..."
     
@@ -1007,18 +1016,20 @@ if [ $? -ne 0 ]; then
     
     echo "Cryptographic lockdown completed. Local storage arrays are completely safe and unreadable." | wall
 fi
-
-
-Map this execution profile inside the crontab engine (crontab -e) on both headless servers to run continuously:
-
+```
+Map this execution profile inside the crontab engine (`crontab -e`) on both headless servers to run continuously:
+```cron
 * * * * * /bin/bash /usr/local/bin/zfs-heartbeat-fence.sh
+```
 
+## 12. Advanced Management Workstation Control: Programmatic Template Engine & Core Playbook Execution
 
-12. Advanced Management Workstation Control: Programmatic Template Engine & Core Playbook Execution
-To eliminate manual configuration divergence between Server 1 and Server 2, we use Ansible Jinja2 Templating running locally from the Linux Mint Workstation. This engine processes the environment matrices and writes the customized configurations directly to the unique server file paths.
-1. Unified Master Host Variables Structure
-Create a detailed variable sheet at ~/infra-cluster/group_vars/hypervisors.yml on your Linux Mint workstation to organize your node properties:
+To eliminate manual configuration divergence between Server 1 and Server 2, we use **Ansible Jinja2 Templating** running locally from the Linux Mint Workstation. This engine processes the environment matrices and writes the customized configurations directly to the unique server file paths.
 
+### 1. Unified Master Host Variables Structure
+Create a detailed variable sheet at `~/infra-cluster/group_vars/hypervisors.yml` on your Linux Mint workstation to organize your node properties:
+
+```yaml
 ---
 # Shared Global Cluster Constants
 global_domain: "example.com"
@@ -1048,11 +1059,11 @@ nodes:
     keepalived_role: "BACKUP"
     keepalived_priority: 100
     hsm_opaque_id: "0x0112"
+```
 
-
-2. Master Jinja2 Interface Network Template
-Create ~/infra-cluster/templates/interfaces.j2 on Linux Mint:
-
+### 2. Master Jinja2 Interface Network Template
+Create `~/infra-cluster/templates/interfaces.j2` on Linux Mint:
+```ini
 # Auto-generated by Ansible Engine Template Controller
 auto lo
 iface lo inet loopback
@@ -1086,11 +1097,11 @@ iface eth0 inet static
     address {{ nodes[inventory_hostname].wan_ip }}
     netmask 255.255.255.0
     gateway 203.0.113.1
+```
 
-
-3. Master Jinja2 Keepalived Node Template
-Create ~/infra-cluster/templates/keepalived.j2 on Linux Mint:
-
+### 3. Master Jinja2 Keepalived Node Template
+Create `~/infra-cluster/templates/keepalived.j2` on Linux Mint:
+```ini
 # Auto-generated by Ansible Engine Template Controller
 vrrp_instance VI_WAN {
     state {{ nodes[inventory_hostname].keepalived_role }}
@@ -1121,11 +1132,12 @@ vrrp_instance VI_LAN {
         10.0.0.1/8
     }
 }
+```
 
+### 4. Unified Infrastructure Automation Orchestrator Playbook
+Create `~/infra-cluster/site.yml` on Linux Mint to provision and configure both nodes simultaneously based on their target host definitions:
 
-4. Unified Infrastructure Automation Orchestrator Playbook
-Create ~/infra-cluster/site.yml on Linux Mint to provision and configure both nodes simultaneously based on their target host definitions:
-
+```yaml
 ---
 - name: Master Orchestrator for Headless Diskless Server Cluster
   hosts: hypervisors
@@ -1162,12 +1174,11 @@ Create ~/infra-cluster/site.yml on Linux Mint to provision and configure both no
     - name: Inform Administrator of Core Modifications
       ansible.builtin.debug:
         msg: "Infrastructure parameters generated. Network states synchronized cleanly over isolated paths."
-
+```
 
 Run this playbook from your Linux Mint workspace terminal to generate and apply all customized node configurations across your private management subdomains automatically:
-
+```bash
 ansible-playbook -i hosts.ini site.yml
+```
 
-
-✅ Master Architectural Guide Completed
-The entire high-availability infrastructure architecture is fully mapped, verified, and complete. Your headless cluster is resilient, precisely synchronized to an atomic Rubidium reference clock, performance-optimized via RAM-cached storage layouts, geofenced against facility tampering, and fully managed through programmatic code models.
+---
