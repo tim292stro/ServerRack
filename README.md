@@ -888,7 +888,7 @@ def main():
         for line in serial_stream:
             if line.startswith("GNGGA") or line.startswith("GPGGA"):
                 parts = line.split(",")
-                if parts[6] != "0":  # Ensure a live validation satellite lock is active
+                if parts != "0":  # Ensure a live validation satellite lock is active
                     try:
                         raw_lat = float(parts[2])
                         lat = (raw_lat // 100) + (raw_lat % 100 / 60)
