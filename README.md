@@ -423,6 +423,28 @@ vrrp_instance VI_LAN {
 }
 ```
 
+##### Keepalived Cluster Health Tracker Script (`/usr/local/bin/keepalived-check.sh`)
+```bash
+#!/bin/bash
+# Keepalived execution script to track critical services
+
+# 1. Verify Shorewall firewall state is active
+shorewall status > /dev/null 2>&1
+if [ \$? -ne 0 ]; then
+    echo "HEALTH CHECK FAILED: Shorewall is inactive or stalled." >&2
+    exit 1
+fi
+
+# 2. Verify Libvirt hypervisor process is running
+systemctl is-active libvirtd > /dev/null 2>&1
+if [ \$? -ne 0 ]; then
+    echo "HEALTH CHECK FAILED: Libvirtd daemon is dead." >&2
+    exit 1
+fi
+
+exit 0
+```
+
 ## 6. Phase 5: Shorewall HA Configuration Files
 
 Create these configurations in `~/infra-cluster/shorewall-configs/` on the Linux Mint Management PC to handle multi-zone routing and virtual IP bindings dynamically.
