@@ -350,6 +350,23 @@ mkdir -p /mnt/ha-storage
 mount -t glusterfs 127.0.0.1:/HA-VM-Storage /mnt/ha-storage
 ```
 
+##### Automated GlusterFS Systemd Mount Configuration (`/etc/systemd/system/mnt-ha\\x2dstorage.mount`)
+```ini
+[Unit]
+Description=Automated Distributed High-Availability GlusterFS Volume Mount
+After=network-online.target glusterfd.service eth200g.service
+Before=libvirtd.service
+
+[Mount]
+What=127.0.0.1:/HA-VM-Storage
+Where=/mnt/ha-storage
+Type=glusterfs
+Options=defaults,_netdev,noatime,fetch-attempts=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
 ## 5. Phase 4: High-Availability Cluster Core Setup
 
 ### 1. Cluster Quorum Configuration (With Mint as QDevice Witness)
