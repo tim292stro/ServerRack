@@ -167,13 +167,15 @@ Configure local terminal shortcuts on the Mint PC for programmatic hardware chas
 # Server 1 Chassis Commands
 alias s1-status="ipmitool -I lanplus -H 192.168.99.2 -U root -P 'YourIPMIPassword' power status"
 alias s1-on="ipmitool -I lanplus -H 192.168.99.2 -U root -P 'YourIPMIPassword' power on"
-alias s1-off="ipmitool -I lanplus -H 192.168.99.2 -U root -P 'YourIPMIPassword' power soft"
+alias s1-shutdown="ipmitool -I lanplus -H 192.168.99.2 -U root -P 'YourIPMIPassword' power soft"
+alias s1-off="ipmitool -I lanplus -H 192.168.99.2 -U root -P 'YourIPMIPassword' power off"
 alias s1-reset="ipmitool -I lanplus -H 192.168.99.2 -U root -P 'YourIPMIPassword' power reset"
 
 # Server 2 Chassis Commands
 alias s2-status="ipmitool -I lanplus -H 192.168.99.6 -U root -P 'YourIPMIPassword' power status"
 alias s2-on="ipmitool -I lanplus -H 192.168.99.6 -U root -P 'YourIPMIPassword' power on"
-alias s2-off="ipmitool -I lanplus -H 192.168.99.6 -U root -P 'YourIPMIPassword' power soft"
+alias s2-shutdown="ipmitool -I lanplus -H 192.168.99.6 -U root -P 'YourIPMIPassword' power soft"
+alias s2-off="ipmitool -I lanplus -H 192.168.99.6 -U root -P 'YourIPMIPassword' power off"
 alias s2-reset="ipmitool -I lanplus -H 192.168.99.6 -U root -P 'YourIPMIPassword' power reset"
 ```
 Activate changes: `source ~/.bashrc`
